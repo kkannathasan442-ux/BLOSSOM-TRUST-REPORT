@@ -1,4 +1,5 @@
-﻿const ExcelJS = require('exceljs');
+﻿const crypto = require('crypto');
+const ExcelJS = require('exceljs');
 const { admin: supabaseAdmin, hasServiceRoleKey } = require('../lib/supabaseClient');
 const { adminCache } = require('./adminController');
 
@@ -293,6 +294,9 @@ exports.importExcel = async (req, res) => {
         .replace(/[^a-zA-Z0-9]/g, '_')
         .toLowerCase();
 
+    const generateTemporaryPassword = () =>
+      crypto.randomBytes(18).toString('base64url');
+
     const nullableText = (value) => {
       const trimmed = String(value || '').trim();
       return trimmed ? trimmed : null;
@@ -437,7 +441,7 @@ exports.importExcel = async (req, res) => {
         // Create new user via Supabase Auth
         const cleanUtNo = cleanUtForEmail(s.utNo);
         const email = `${cleanUtNo}@blossomtrust.org`;
-        const password = 'student123';
+        const password = generateTemporaryPassword();
 
         // Check if the email already exists
         const { data: existingUser } = await db.from('users').select('id').eq('email', email).maybeSingle();
