@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 
 const AuthContext = createContext(null);
 
@@ -9,6 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const authFailureHandledRef = useRef(false);
 
   const API_URL = '/api';
 
@@ -17,6 +18,63 @@ export const AuthProvider = ({ children }) => {
     setTimeout(() => { setToast(null); }, 4000);
   };
 
+  const readApiResponse = async (res) => {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return res.json();
+    }
+
+    const text = await res.text();
+    return {
+      message: text || `Request failed with status ${res.status}`
+    };
+  };
+
+  const clearAuthSession = (message = 'Session expired. Please log in again.') => {
+    localStorage.removeItem('bt_token');
+    setToken(null);
+    setUser(null);
+    setLoading(false);
+
+    if (!authFailureHandledRef.current) {
+      authFailureHandledRef.current = true;
+      showToast(message, 'error');
+    }
+  };
+
+  useEffect(() => {
+    const originalFetch = window.fetch.bind(window);
+
+    window.fetch = async (input, init) => {
+      const res = await originalFetch(input, init);
+      const requestUrl = typeof input === 'string' ? input : input?.url || '';
+      const isApiRequest = requestUrl.startsWith(API_URL) || requestUrl.includes('/api/');
+      const isLoginRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
+      const isProtectedRequest = requestUrl.includes('/api/admin/') || requestUrl.includes('/api/student/') || requestUrl.endsWith('/api/auth/me') || requestUrl.endsWith('/auth/me');
+
+      if (isApiRequest && isProtectedRequest && !isLoginRequest && (res.status === 401 || res.status === 403)) {
+        let message = '';
+        try {
+          const data = await readApiResponse(res.clone());
+          message = data?.message || '';
+        } catch (_) {
+          message = '';
+        }
+
+        const shouldClearSession = !message || /invalid|expired|access denied|administrator|role|not assigned|not found/i.test(message);
+        if (shouldClearSession) {
+          clearAuthSession(message || 'Session expired. Please log in again.');
+        }
+      }
+
+      return res;
+    };
+
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, []);
+
   // Fetch current user details if token exists
   const fetchCurrentUser = async (authToken) => {
     try {
@@ -24,16 +82,17 @@ export const AuthProvider = ({ children }) => {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
 
-      const data = await res.json();
+      const data = await readApiResponse(res);
 
       if (res.ok) {
+        authFailureHandledRef.current = false;
         setUser({
           id: data.id,
           email: data.email,
           role: data.role
         });
       } else {
-        logout();
+        clearAuthSession(data.message || 'Session expired. Please log in again.');
       }
     } catch (err) {
       console.error('Error fetching current user:', err);
@@ -60,9 +119,10 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email, password })
       });
 
-      const data = await res.json();
+      const data = await readApiResponse(res);
 
       if (res.ok) {
+        authFailureHandledRef.current = false;
         localStorage.setItem('bt_token', data.token);
         setToken(data.token);
         setUser(data.user);
@@ -87,7 +147,7 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email, password, fullName, utNo, studentType, courseName })
       });
 
-      const data = await res.json();
+      const data = await readApiResponse(res);
 
       if (res.ok) {
         showToast('Registration successful! You can now log in.', 'success');
