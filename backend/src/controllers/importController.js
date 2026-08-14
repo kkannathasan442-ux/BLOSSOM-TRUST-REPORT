@@ -1,41 +1,177 @@
-const ExcelJS = require('exceljs');
-const { supabase, admin: supabaseAdmin } = require('../lib/supabaseClient');
+﻿const ExcelJS = require('exceljs');
+const { admin: supabaseAdmin, hasServiceRoleKey } = require('../lib/supabaseClient');
+const { adminCache } = require('./adminController');
 
-// ─── Download Sample Excel Template ───────────────────────────────────────────
+// â”€â”€â”€ Download Sample Excel Template â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.downloadSample = async (req, res) => {
   try {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Students');
+    workbook.creator = 'Blossom Trust TIC Portal';
+    workbook.created = new Date();
 
-    // Core student fields only — admin fields (Status, Company, Salary, etc.) are updated later via the system
-    sheet.addRow([
+    const sheet = workbook.addWorksheet('Bulk Student Update');
+    const instructions = workbook.addWorksheet('Instructions');
+
+    const headers = [
       'UT No',
+      'Student Type',
       'Full Name',
       'Phone Number',
       'NIC Number',
       'District',
       'Email Address',
       'Bank Name',
+      'Branch',
       'Branch Name',
       'Branch Code',
       'Account Number',
       'Beneficiary Name',
       'Blossom Trust Amount',
+      'Current Status',
+      'Working Company Name',
+      'Salary',
+      'Dropout Reason',
+      'Dropout Date',
+      'Low Alternance Reason',
+      'Low Alternance Hours',
       'Course Specialization',
       'Employment Status',
       'Other Status'
-    ]);
-
-    // 3 sample rows so users know the expected format
-    const samples = [
-      ['TIC-2026-001', 'Kasun Perera',       '0771234567', '199012345678', 'Colombo',      'kasun@gmail.com',   'Bank of Ceylon',  'Colombo Main Branch',  '001', '12345678901', 'Kasun Perera',       15000, 'Full Stack Development', 'Software Industry Employment', ''],
-      ['TIC-2026-002', 'Nimasha Silva',       '0712345678', '199512367890', 'Gampaha',      'nimasha@gmail.com', 'Peoples Bank',    'Gampaha Branch',       '045', '98765432101', 'Nimasha Silva',      12000, 'Front End', 'Software Industry Employment', ''],
-      ['TIC-2026-003', 'Ravindu Fernando',    '0761234567', '200001234567', 'Kandy',        'ravindu@gmail.com', 'Sampath Bank',    'Kandy City Branch',    '012', '11223344556', 'Ravindu Fernando',   18000, 'Full Stack Development', 'Other Industry Employment', ''],
     ];
+
+    const samples = [
+      [
+        'TIC-2026-001', 'blossom', 'Kasun Perera', '0771234567', '199012345678', 'Colombo', 'kasun.perera@example.com',
+        'Bank of Ceylon', 'Colombo', 'Colombo Main Branch', '001', '12345678901', 'Kasun Perera', 15000,
+        'Software Industry Employment', 'ABC Software Pvt Ltd', 85000, '', '', '', '',
+        'Full Stack Development', 'Software Industry Employment', ''
+      ],
+      [
+        'TIC-2026-002', 'non_blossom', 'Nimasha Silva', '0712345678', '199512367890', 'Gampaha', 'nimasha.silva@example.com',
+        'Peoples Bank', 'Gampaha', 'Gampaha Branch', '045', '98765432101', 'Nimasha Silva', 12000,
+        'Other Industry Employment', 'XYZ Holdings', 65000, '', '', '', '',
+        'Front End', 'Other Industry Employment', ''
+      ],
+      [
+        'TIC-2026-003', 'non_blossom', 'Ravindu Fernando', '0761234567', '200001234567', 'Kandy', 'ravindu.fernando@example.com',
+        'Sampath Bank', 'Kandy', 'Kandy City Branch', '012', '11223344556', 'Ravindu Fernando', 18000,
+        'Unemployed', 'N/A', 0, '', '', 'Needs follow-up', 12,
+        'Full Stack Development', '', 'Unemployment'
+      ]
+    ];
+
+    sheet.mergeCells('A1:X1');
+    sheet.getCell('A1').value = 'Blossom Trust TIC - Bulk Student Create / Update Template';
+    sheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+    sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+
+    sheet.mergeCells('A2:X2');
+    sheet.getCell('A2').value = 'For update: keep the UT No exactly the same as the existing student. For create: use a new unique UT No. Student Type controls Blossom vs Non-Blossom tab.';
+    sheet.getCell('A2').font = { italic: true, color: { argb: 'FF374151' } };
+    sheet.getCell('A2').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2F8' } };
+
+    sheet.addRow([]);
+    sheet.addRow(headers);
     samples.forEach(row => sheet.addRow(row));
 
+    const headerRow = sheet.getRow(4);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    headerRow.height = 34;
+
+    sheet.columns = [
+      { width: 16 }, { width: 16 }, { width: 24 }, { width: 16 }, { width: 18 }, { width: 16 }, { width: 28 },
+      { width: 20 }, { width: 16 }, { width: 24 }, { width: 14 }, { width: 18 }, { width: 24 },
+      { width: 18 }, { width: 26 }, { width: 24 }, { width: 14 }, { width: 24 }, { width: 16 },
+      { width: 26 }, { width: 18 }, { width: 24 }, { width: 28 }, { width: 18 }
+    ];
+
+    sheet.views = [{ state: 'frozen', ySplit: 4 }];
+    sheet.autoFilter = { from: 'A4', to: 'X4' };
+
+    for (let rowNumber = 4; rowNumber <= sheet.rowCount; rowNumber++) {
+      const row = sheet.getRow(rowNumber);
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          right: { style: 'thin', color: { argb: 'FFD1D5DB' } }
+        };
+        cell.alignment = { vertical: 'middle', wrapText: true };
+      });
+    }
+
+    sheet.getColumn(14).numFmt = '#,##0';
+    sheet.getColumn(17).numFmt = '#,##0';
+    sheet.getColumn(19).numFmt = 'yyyy-mm-dd';
+    sheet.getColumn(21).numFmt = '0';
+
+    for (let row = 5; row <= 500; row++) {
+      sheet.getCell(`B${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"blossom,non_blossom"']
+      };
+      sheet.getCell(`O${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Software Industry Employment,Other Industry Employment,Unemployed,N/A"']
+      };
+      sheet.getCell(`V${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Full Stack Development,Front End"']
+      };
+      sheet.getCell(`W${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Software Industry Employment,Other Industry Employment"']
+      };
+      sheet.getCell(`X${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Higher Study,Unemployment,Foreign"']
+      };
+    }
+
+    instructions.columns = [{ width: 28 }, { width: 95 }];
+    instructions.getCell('A1').value = 'Field';
+    instructions.getCell('B1').value = 'How to use';
+    instructions.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    instructions.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+    instructions.addRows([
+      ['UT No', 'Required. Existing UT No updates that student. New unique UT No creates a new student login/profile.'],
+      ['Student Type', 'Required for correct tab. Use blossom or non_blossom. If omitted, import defaults to blossom.'],
+      ['Full Name', 'Required. Rows without a full name are skipped.'],
+      ['Email Address', 'Optional. If blank, the importer uses the generated student login email.'],
+      ['NIC Number', 'Optional. If blank, it is stored as empty instead of blocking import; if filled, it must be unique.'],
+      ['Account Number / Branch Code', 'Digits only. Keep as text if leading zeros matter.'],
+      ['Blossom Trust Amount / Salary', 'Numbers only. Do not include currency symbols.'],
+      ['Dropout Date', 'Use yyyy-mm-dd format, for example 2026-07-19.'],
+      ['Current Status', 'Maps to admin status column. Example: Software Industry Employment, Other Industry Employment, Unemployed.'],
+      ['Working Company Name', 'Maps to admin company column. Use N/A if not applicable.'],
+      ['Course Specialization', 'Use Full Stack Development or Front End where applicable.'],
+      ['Employment Status', 'Use Software Industry Employment or Other Industry Employment.'],
+      ['Other Status', 'Use Higher Study, Unemployment, or Foreign where applicable.'],
+      ['After upload', 'The dashboard refreshes automatically and clears filters so updated rows are visible.']
+    ]);
+    instructions.eachRow((row) => {
+      row.eachCell((cell) => {
+        cell.alignment = { vertical: 'top', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          right: { style: 'thin', color: { argb: 'FFD1D5DB' } }
+        };
+      });
+    });
+
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="Student_Bulk_Upload_Sample.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="Student_Bulk_Create_Update_Template.xlsx"');
 
     await workbook.xlsx.write(res);
     res.end();
@@ -44,11 +180,18 @@ exports.downloadSample = async (req, res) => {
     return res.status(500).json({ message: 'Failed to generate sample file.' });
   }
 };
-
 exports.importExcel = async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ message: 'No file uploaded or file format is invalid.' });
   }
+
+  if (!hasServiceRoleKey) {
+    return res.status(503).json({
+      message: 'Bulk import is unavailable until SUPABASE_SERVICE_ROLE_KEY is configured on the server.'
+    });
+  }
+
+  const db = req.supabase || supabaseAdmin;
 
   const workbook = new ExcelJS.Workbook();
 
@@ -97,6 +240,7 @@ exports.importExcel = async (req, res) => {
     };
 
     const utCol = getColIndex(['ut no', 'ut_no', 'utno', 'id']);
+    const studentTypeCol = getColIndex(['student type', 'student_type', 'student category', 'type', 'blossom/non-blossom']);
     const nameCol = getColIndex(['full name', 'name', 'fullname', 'student name']);
     const phoneCol = getColIndex(['phone number', 'phone no', 'phoneno', 'phone']);
     const nicCol = getColIndex(['nic number', 'nic no', 'nicnumber', 'nic']);
@@ -137,11 +281,40 @@ exports.importExcel = async (req, res) => {
       return String(val);
     };
 
+    const normalizeStudentType = (value) => {
+      const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+      if (!normalized || normalized === 'blossom' || normalized === 'blossom_trust') return 'blossom';
+      if (normalized === 'non_blossom' || normalized === 'nonblossom' || normalized === 'non_blossom_trust') return 'non_blossom';
+      return null;
+    };
+
+    const cleanUtForEmail = (utNo) =>
+      String(utNo || 'student')
+        .replace(/[^a-zA-Z0-9]/g, '_')
+        .toLowerCase();
+
+    const nullableText = (value) => {
+      const trimmed = String(value || '').trim();
+      return trimmed ? trimmed : null;
+    };
+
+    const buildGeneratedUtNo = (rowNumber) =>
+      `UT-AUTO-${new Date().getFullYear()}-${String(rowNumber).padStart(3, '0')}`;
+
     // Read data rows
     for (let r = headerRowIndex + 1; r <= worksheet.rowCount; r++) {
       const row = worksheet.getRow(r);
       const nameVal = getCellValue(row.getCell(nameCol));
       if (!nameVal || !nameVal.trim()) continue;
+
+      const rawUtNo = utCol ? getCellValue(row.getCell(utCol)).trim() : '';
+      const finalUtNo = rawUtNo || buildGeneratedUtNo(r);
+
+      const rawStudentType = studentTypeCol ? getCellValue(row.getCell(studentTypeCol)).trim() : '';
+      const studentType = normalizeStudentType(rawStudentType);
+      if (!studentType) {
+        return res.status(400).json({ message: `Row ${r}: Student Type "${rawStudentType}" is invalid. Use blossom or non_blossom.` });
+      }
 
       const branchVal = branchCol ? getCellValue(row.getCell(branchCol)).trim() : '';
       const branchNameVal = branchNameCol ? getCellValue(row.getCell(branchNameCol)).trim() : '';
@@ -169,12 +342,16 @@ exports.importExcel = async (req, res) => {
         return res.status(400).json({ message: `Row ${r}: Salary "${salaryVal}" must be a valid number.` });
       }
 
+      const rawEmail = emailCol ? getCellValue(row.getCell(emailCol)).trim().toLowerCase() : '';
+      const fallbackEmail = `${cleanUtForEmail(finalUtNo)}@blossomtrust.org`;
+
       studentsToUpsert.push({
         rowNumber: r,
-        utNo: utCol ? getCellValue(row.getCell(utCol)).trim() || null : null,
+        utNo: finalUtNo,
+        studentType,
         fullName: nameVal.trim(),
         phoneNo: phoneCol ? getCellValue(row.getCell(phoneCol)).trim() : '',
-        nicNo: nicCol ? getCellValue(row.getCell(nicCol)).trim() : '',
+        nicNo: nicCol ? nullableText(getCellValue(row.getCell(nicCol))) : null,
         district: distCol ? getCellValue(row.getCell(distCol)).trim() : '',
         bankName: bankCol ? getCellValue(row.getCell(bankCol)).trim() : '',
         branch: branchVal,
@@ -193,7 +370,7 @@ exports.importExcel = async (req, res) => {
         courseSpecialization: courseSpecCol ? getCellValue(row.getCell(courseSpecCol)).trim() || null : null,
         employmentStatus: empStatusCol ? getCellValue(row.getCell(empStatusCol)).trim() || null : null,
         otherStatus: otherStatusCol ? getCellValue(row.getCell(otherStatusCol)).trim() || null : null,
-        email: emailCol ? getCellValue(row.getCell(emailCol)).trim().toLowerCase() || null : null
+        email: rawEmail || fallbackEmail
       });
     }
 
@@ -201,28 +378,34 @@ exports.importExcel = async (req, res) => {
 
     let insertedCount = 0;
     let updatedCount = 0;
+    const rowErrors = [];
 
     for (const s of studentsToUpsert) {
       // Try to match by UT No
       let existingStudent = null;
       if (s.utNo) {
-        const { data } = await supabase
+        const { data, error: lookupError } = await db
           .from('students')
           .select('id, user_id')
           .eq('ut_no', s.utNo)
           .maybeSingle();
+        if (lookupError) {
+          rowErrors.push({ row: s.rowNumber, utNo: s.utNo, message: lookupError.message });
+          continue;
+        }
         existingStudent = data;
       }
 
       if (existingStudent) {
         // Update existing student
-        await supabase
+        const { error: updateError } = await db
           .from('students')
           .update({
             full_name: s.fullName,
             phone_number: s.phoneNo,
             nic_number: s.nicNo,
             district: s.district,
+            student_type: s.studentType,
             bank_name: s.bankName,
             branch: s.branch,
             branch_name: s.branchName,
@@ -245,26 +428,31 @@ exports.importExcel = async (req, res) => {
             updated_at: new Date().toISOString()
           })
           .eq('id', existingStudent.id);
+        if (updateError) {
+          rowErrors.push({ row: s.rowNumber, utNo: s.utNo, message: updateError.message });
+          continue;
+        }
         updatedCount++;
       } else {
         // Create new user via Supabase Auth
-        const cleanUtNo = s.utNo ? s.utNo.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() : 'student_' + Math.round(Math.random() * 100000);
+        const cleanUtNo = cleanUtForEmail(s.utNo);
         const email = `${cleanUtNo}@blossomtrust.org`;
         const password = 'student123';
 
         // Check if the email already exists
-        const { data: existingUser } = await supabase.from('users').select('id').eq('email', email).maybeSingle();
+        const { data: existingUser } = await db.from('users').select('id').eq('email', email).maybeSingle();
         let userId;
 
         if (existingUser) {
           userId = existingUser.id;
         } else {
-          const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
             email, password, email_confirm: true
           });
 
           if (authError) {
             console.warn(`Skipping user creation for ${email}: ${authError.message}`);
+            rowErrors.push({ row: s.rowNumber, utNo: s.utNo, message: authError.message });
             continue;
           }
 
@@ -273,27 +461,32 @@ exports.importExcel = async (req, res) => {
           // In SQLite mode, createUser already inserts into users (with password).
           // In Supabase mode, createUser only creates in auth.users, so we insert manually.
           // Check first to avoid duplicate / NOT NULL constraint errors.
-          const { data: alreadyInPublic } = await supabase
+          const { data: alreadyInPublic } = await db
             .from('users')
             .select('id')
             .eq('id', userId)
             .maybeSingle();
 
           if (!alreadyInPublic) {
-            await supabase.from('users').insert([{
+            const { error: publicUserError } = await db.from('users').insert([{
               id: userId, email, role: 'student'
             }]);
+            if (publicUserError) {
+              rowErrors.push({ row: s.rowNumber, utNo: s.utNo, message: publicUserError.message });
+              continue;
+            }
           }
         }
 
         // Insert student profile
-        await supabase.from('students').insert([{
+        const { error: insertError } = await db.from('students').insert([{
           user_id: userId,
-          ut_no: s.utNo || `UT-NEW-${Date.now()}`,
+          ut_no: s.utNo,
           full_name: s.fullName,
           phone_number: s.phoneNo,
           nic_number: s.nicNo,
           district: s.district,
+          student_type: s.studentType,
           bank_name: s.bankName,
           branch: s.branch,
           branch_name: s.branchName,
@@ -314,14 +507,32 @@ exports.importExcel = async (req, res) => {
           other_status: s.otherStatus,
           email: s.email
         }]);
+        if (insertError) {
+          rowErrors.push({ row: s.rowNumber, utNo: s.utNo, message: insertError.message });
+          continue;
+        }
         insertedCount++;
       }
     }
 
+    if (adminCache) adminCache.flushAll();
+
+    const baseMessage = `Data import completed successfully! Created ${insertedCount} new student profiles, and updated ${updatedCount} existing profiles.`;
+    if (rowErrors.length > 0) {
+      return res.status(207).json({
+        message: `${baseMessage} ${rowErrors.length} row(s) failed. Check the Excel data.`,
+        inserted: insertedCount,
+        updated: updatedCount,
+        failed: rowErrors.length,
+        errors: rowErrors.slice(0, 20)
+      });
+    }
+
     return res.status(200).json({
-      message: `Data import completed successfully! Created ${insertedCount} new student profiles, and updated ${updatedCount} existing profiles.`,
+      message: baseMessage,
       inserted: insertedCount,
-      updated: updatedCount
+      updated: updatedCount,
+      failed: 0
     });
 
   } catch (error) {
@@ -329,3 +540,5 @@ exports.importExcel = async (req, res) => {
     return res.status(500).json({ message: 'Error processing Excel file. Details: ' + error.message });
   }
 };
+
+
