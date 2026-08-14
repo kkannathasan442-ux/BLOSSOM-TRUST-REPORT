@@ -21,7 +21,7 @@ exports.listStudents = async (req, res) => {
     if (district) query = query.eq('district', district);
     if (bank) query = query.eq('bank_name', bank);
     if (beneficiaryName) query = query.ilike('beneficiary_name', `%${beneficiaryName}%`);
-    if (studentType) query = query.eq('student_type', studentType);
+    if (studentType && !['all', 'overall'].includes(String(studentType).toLowerCase())) query = query.eq('student_type', studentType);
     if (courseName) query = query.eq('course_name', courseName);
     if (batch) query = query.eq('batch', batch);
 
