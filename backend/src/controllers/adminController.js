@@ -13,7 +13,7 @@ exports.listStudents = async (req, res) => {
   const { utNo, name, phoneNo, district, bank, beneficiaryName, studentType, courseName, batch } = req.query;
 
   try {
-    let query = supabase.from('students').select('*', { count: 'exact' });
+    let query = supabaseAdmin.from('students').select('*', { count: 'exact' });
 
     if (utNo) query = query.ilike('ut_no', `%${utNo}%`);
     if (name) query = query.ilike('full_name', `%${name}%`);
