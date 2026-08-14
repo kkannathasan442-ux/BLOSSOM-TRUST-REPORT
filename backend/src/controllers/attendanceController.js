@@ -1,13 +1,12 @@
-const ExcelJS = require('exceljs');
-const pdfParse = require('pdf-parse');
+﻿const ExcelJS = require('exceljs');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
-const { supabase, admin: supabaseAdmin } = require('../lib/supabaseClient');
+const { admin: supabaseAdmin } = require('../lib/supabaseClient');
 const { adminCache } = require('./adminController');
 
 // 1. Fetch Thresholds
-const getThresholds = async () => {
-  const { data: settings } = await supabaseAdmin.from('admin_settings').select('*').in('key', ['attendance_threshold_good', 'attendance_threshold_medium', 'attendance_threshold_low']);
+const getThresholds = async (db = supabaseAdmin) => {
+  const { data: settings } = await db.from('admin_settings').select('*').in('key', ['attendance_threshold_good', 'attendance_threshold_medium', 'attendance_threshold_low']);
   const map = { good: 90, medium: 80, low: 65 };
   (settings || []).forEach(s => {
     if (s.key === 'attendance_threshold_good') map.good = parseFloat(s.value);
@@ -28,17 +27,23 @@ const categorizeAttendance = (percentage, thresholds) => {
 // Helpers for file parsing
 const getCellValue = (cell) => {
   if (!cell) return '';
-  let val = cell.value;
+  const val = cell.value;
   if (val === undefined || val === null) return '';
+
+  let normalized = val;
   if (typeof val === 'object') {
-    if (val.result !== undefined) return val.result;
-    if (val.text !== undefined) return String(val.text);
-    if (Array.isArray(val.richText)) return val.richText.map(t => t.text || '').join('');
-    if (val instanceof Date) return val.toISOString().split('T')[0];
-    if (val.formula !== undefined) return '';
+    if (val instanceof Date) normalized = val.toISOString().split('T')[0];
+    else if (Array.isArray(val.richText)) normalized = val.richText.map(t => t.text || '').join('');
+    else if (val.text !== undefined) normalized = val.text;
+    else if (val.result !== undefined && val.result !== null) normalized = val.result;
+    else normalized = '';
   }
-  if (typeof val === 'number' && cell.numFmt && String(cell.numFmt).includes('%')) return String(val * 100) + '%';
-  return String(val !== undefined && val !== null ? val : '').trim();
+
+  if (typeof normalized === 'number' && cell.numFmt && String(cell.numFmt).includes('%')) {
+    return `${normalized * 100}%`;
+  }
+
+  return String(normalized !== undefined && normalized !== null ? normalized : '').trim();
 };
 
 const findMatchedStudent = (excelUt, allStudents) => {
@@ -48,7 +53,7 @@ const findMatchedStudent = (excelUt, allStudents) => {
   const alphaExcel = lowerExcel.replace(/[^a-z0-9]/g, '');
   if (!alphaExcel) return null;
   
-  let match = allStudents.find(s => s.ut_no && s.ut_no.trim().toLowerCase() === lowerExcel);
+  let match = allStudents.find(s => s.ut_no && String(s.ut_no).trim().toLowerCase() === lowerExcel);
   if (match) return match;
   
   const excelId = parseInt(cleanExcel, 10);
@@ -59,7 +64,7 @@ const findMatchedStudent = (excelUt, allStudents) => {
   
   match = allStudents.find(s => {
     if (!s.ut_no) return false;
-    const alphaDb = s.ut_no.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const alphaDb = String(s.ut_no).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     return alphaDb === alphaExcel;
   });
   if (match) return match;
@@ -67,7 +72,7 @@ const findMatchedStudent = (excelUt, allStudents) => {
   if (alphaExcel.length >= 3) {
     match = allStudents.find(s => {
       if (!s.ut_no) return false;
-      const alphaDb = s.ut_no.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const alphaDb = String(s.ut_no).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
       return alphaDb.endsWith(alphaExcel) || alphaExcel.endsWith(alphaDb);
     });
     if (match) return match;
@@ -157,8 +162,9 @@ exports.uploadAttendance = async (req, res) => {
 
     const cleanMonth = month.trim();
     const cleanYear = Number(year);
-    const thresholds = await getThresholds();
-    const { data: allStudents } = await supabaseAdmin.from('students').select('id, ut_no, full_name');
+    const db = req.supabase || supabaseAdmin;
+    const thresholds = await getThresholds(db);
+    const { data: allStudents } = await db.from('students').select('id, ut_no, full_name');
 
     let updatedCount = 0;
     let notFoundCount = 0;
@@ -170,14 +176,14 @@ exports.uploadAttendance = async (req, res) => {
         const status = categorizeAttendance(record.attendancePercentage, thresholds);
 
         // Delete existing history
-        await supabaseAdmin.from('attendance_history')
+        await db.from('attendance_history')
           .delete()
           .eq('student_id', matchedStudent.id)
           .eq('month', cleanMonth)
           .eq('year', cleanYear);
 
         // Insert new history
-        const { error: historyError } = await supabaseAdmin.from('attendance_history').insert({
+        const { error: historyError } = await db.from('attendance_history').insert({
           student_id: matchedStudent.id,
           month: cleanMonth,
           year: cleanYear,
@@ -215,16 +221,17 @@ exports.manualEntry = async (req, res) => {
   }
 
   try {
-    const thresholds = await getThresholds();
+    const db = req.supabase || supabaseAdmin;
+    const thresholds = await getThresholds(db);
     const status = categorizeAttendance(parseFloat(percentage), thresholds);
 
-    await supabaseAdmin.from('attendance_history')
+    await db.from('attendance_history')
       .delete()
       .eq('student_id', student_id)
       .eq('month', month)
       .eq('year', year);
 
-    const { error } = await supabaseAdmin.from('attendance_history').insert({
+    const { error } = await db.from('attendance_history').insert({
       student_id, month, year, attendance_percentage: percentage, status, uploaded_file: 'Manual Entry'
     });
 
@@ -242,7 +249,8 @@ exports.manualEntry = async (req, res) => {
 exports.getHistory = async (req, res) => {
   const { student_id } = req.query;
   try {
-    let query = supabaseAdmin.from('attendance_history').select('*, students(full_name, ut_no)');
+        const db = req.supabase || supabaseAdmin;
+let query = db.from('attendance_history').select('*, students(full_name, ut_no)');
     if (student_id) query = query.eq('student_id', student_id);
     
     const { data, error } = await query.order('year', { ascending: false }).order('month', { ascending: false });
@@ -258,7 +266,8 @@ exports.getHistory = async (req, res) => {
 exports.clearAttendance = async (req, res) => {
   const { month, year } = req.body;
   try {
-    const { data: result, error } = await supabaseAdmin.from('attendance_history')
+        const db = req.supabase || supabaseAdmin;
+const { data: result, error } = await db.from('attendance_history')
       .delete()
       .eq('month', month)
       .eq('year', year)
@@ -272,3 +281,7 @@ exports.clearAttendance = async (req, res) => {
     return res.status(500).json({ message: 'Error clearing attendance data.' });
   }
 };
+
+
+
+
