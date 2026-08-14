@@ -2,8 +2,9 @@ const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const { admin: supabaseAdmin } = require('../lib/supabaseClient');
 
-const buildFilterQuery = (query, req) => {
+const buildFilterQuery = (query, req, options = {}) => {
   const { batch_year, course_name, district, profile_status } = req.query;
+  const { defaultProfileFilter = true } = options;
   
   if (batch_year) query = query.eq('batch_year', parseInt(batch_year, 10));
   if (course_name) query = query.ilike('course_name', `%${course_name}%`);
@@ -11,15 +12,15 @@ const buildFilterQuery = (query, req) => {
   
   if (profile_status) {
     query = query.eq('profile_status', profile_status);
-  } else {
+  } else if (defaultProfileFilter) {
     // Only approved/locked profiles appear in official reports unless explicitly filtered
     query = query.in('profile_status', ['approved', 'locked']);
   }
   return query;
 };
 
-const fetchReportData = async (req, baseCondition) => {
-  let query = supabaseAdmin.from('students').select(`
+const fetchReportData = async (req, baseCondition, options = {}) => {
+  let query = (req.supabase || supabaseAdmin).from('students').select(`
     *,
     employment_history ( status, company_name, salary, employment_date ),
     attendance_history ( month, year, attendance_percentage, status ),
@@ -30,7 +31,7 @@ const fetchReportData = async (req, baseCondition) => {
     query = baseCondition(query);
   }
   
-  query = buildFilterQuery(query, req);
+  query = buildFilterQuery(query, req, options);
   const { data, error } = await query;
   if (error) throw error;
   
@@ -58,6 +59,12 @@ const fetchReportData = async (req, baseCondition) => {
   });
 };
 
+const safeCell = (value) => {
+  if (value === undefined || value === null || value === '') return '-';
+  if (typeof value === 'number') return value.toLocaleString();
+  return String(value);
+};
+
 const generateExcel = async (res, students, reportTitle, headers, rowMapper) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Report');
@@ -73,7 +80,7 @@ const generateExcel = async (res, students, reportTitle, headers, rowMapper) => 
   worksheet.getRow(2).font = { bold: true };
 
   students.forEach((s, idx) => {
-    worksheet.addRow([idx + 1, ...rowMapper(s)]);
+    worksheet.addRow([idx + 1, ...rowMapper(s).map(safeCell)]);
   });
 
   worksheet.columns.forEach(col => { col.width = 20; });
@@ -82,6 +89,57 @@ const generateExcel = async (res, students, reportTitle, headers, rowMapper) => 
   res.setHeader('Content-Disposition', `attachment; filename=${reportTitle.replace(/\s+/g, '_')}.xlsx`);
   await workbook.xlsx.write(res);
   res.end();
+};
+
+const generatePdf = async (res, students, reportTitle, headers, rowMapper) => {
+  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 28 });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=${reportTitle.replace(/\s+/g, '_')}.pdf`);
+  doc.pipe(res);
+
+  doc.fontSize(16).text(reportTitle, { align: 'center' });
+  doc.moveDown(0.6);
+
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const columnWidth = pageWidth / headers.length;
+  let y = doc.y;
+
+  const drawRow = (values, isHeader = false) => {
+    const rowHeight = isHeader ? 18 : 28;
+    if (y + rowHeight > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage({ size: 'A4', layout: 'landscape', margin: 28 });
+      y = doc.y;
+    }
+
+    doc.font(isHeader ? 'Helvetica-Bold' : 'Helvetica').fontSize(isHeader ? 7 : 6.5);
+    values.forEach((value, index) => {
+      doc.text(safeCell(value), doc.page.margins.left + index * columnWidth, y + 3, {
+        width: columnWidth - 4,
+        height: rowHeight - 4,
+        ellipsis: true
+      });
+    });
+    y += rowHeight;
+  };
+
+  drawRow(headers, true);
+  students.forEach((student, index) => drawRow([index + 1, ...rowMapper(student)]));
+
+  if (!students.length) {
+    doc.moveDown().fontSize(10).text('No records found for this report.');
+  }
+
+  doc.end();
+};
+
+const sendReport = async (req, res, students, reportTitle, headers, rowMapper) => {
+  if (String(req.query.format || '').toLowerCase() === 'pdf') {
+    await generatePdf(res, students, reportTitle, headers, rowMapper);
+    return;
+  }
+
+  await generateExcel(res, students, reportTitle, headers, rowMapper);
 };
 
 exports.blossomFinalReport = async (req, res) => {
@@ -119,11 +177,22 @@ exports.employmentReport = async (req, res) => {
 
 exports.dropoutReport = async (req, res) => {
   try {
-    const students = await fetchReportData(req, (q) => q.eq('dropout_status', true));
-    const headers = ['No', 'UT No', 'Full Name', 'District', 'Course', 'Dropout Reason', 'Dropout Date'];
-    const rowMapper = s => [s.ut_no, s.full_name, s.district, s.course_name, s.dropout_reason, s.dropout_date];
-    await generateExcel(res, students, 'Dropout Report', headers, rowMapper);
+    const students = await fetchReportData(req, (q) => q.eq('dropout_status', true), { defaultProfileFilter: false });
+    const headers = ['No', 'UT No', 'Name', 'District', 'Amount', 'Beneficiary Name', 'Beneficiary Bank', 'Branch', 'Branch C. No', 'Account No.'];
+    const rowMapper = s => [
+      s.ut_no,
+      s.full_name,
+      s.district,
+      s.blossom_trust_amount || 0,
+      s.beneficiary_name,
+      s.bank_name,
+      s.branch_name || s.branch,
+      s.branch_code,
+      s.account_no
+    ];
+    await sendReport(req, res, students, 'Dropout Report', headers, rowMapper);
   } catch (error) {
+    console.error('dropoutReport error:', error);
     return res.status(500).json({ message: 'Error generating report.' });
   }
 };
