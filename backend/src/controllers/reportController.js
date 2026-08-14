@@ -164,6 +164,28 @@ exports.nonBlossomReport = async (req, res) => {
   }
 };
 
+exports.overallReport = async (req, res) => {
+  try {
+    const students = await fetchReportData(req, null, { defaultProfileFilter: false });
+    const headers = ['No', 'Type', 'UT No', 'Full Name', 'District', 'Course', 'Completion Status', 'Emp. Status', 'Company', 'Salary', 'Other Status'];
+    const rowMapper = s => [
+      s.student_type === 'non_blossom' ? 'Non-Blossom' : 'Blossom Trust',
+      s.ut_no,
+      s.full_name,
+      s.district,
+      s.course_name || s.course_specialization,
+      s.course_completion_status || s.profile_status,
+      s.latest_employment,
+      s.latest_company,
+      s.latest_salary,
+      s.other_status
+    ];
+    await sendReport(req, res, students, 'Overall Student Report', headers, rowMapper);
+  } catch (error) {
+    console.error('overallReport error:', error);
+    return res.status(500).json({ message: 'Error generating report.' });
+  }
+};
 exports.employmentReport = async (req, res) => {
   try {
     const students = await fetchReportData(req, null);
@@ -209,5 +231,4 @@ exports.monthlyAttendanceReport = async (req, res) => {
 };
 
 // Deprecated placeholders for old API endpoints
-exports.overallReport = exports.blossomFinalReport;
 exports.monthlyLowAttendanceReport = exports.monthlyAttendanceReport;

@@ -72,6 +72,7 @@ router.post('/admin/funding', verifyToken, isAdmin, fundingController.addPayment
 router.get('/admin/funding/history', verifyToken, isAdmin, fundingController.getPaymentHistory);
 
 // 4. Admin Reports Routes
+router.get('/admin/reports/overall', verifyToken, isAdmin, reportController.overallReport);
 router.get('/admin/reports/blossom-final', verifyToken, isAdmin, reportController.blossomFinalReport);
 router.get('/admin/reports/non-blossom', verifyToken, isAdmin, reportController.nonBlossomReport);
 router.get('/admin/reports/employment', verifyToken, isAdmin, reportController.employmentReport);
